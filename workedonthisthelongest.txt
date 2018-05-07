@@ -1,0 +1,624 @@
+#include <libplayerc++/playerc++.h>
+#include <iostream>
+#include <fstream>
+#include <stdlib.h>
+#include <time.h>
+#include <queue>
+#include <string>
+#include <math.h>
+#define Square(x) ((x)*(x))
+#define S_DIST_TOL 1.
+#define L_DIST_TOL 1.
+#define MS_LIN_SPEED 1.
+#define MS_DIST_TOL 0.1
+#define T_ANG_SPEED 0.5
+#define T_ANG_TOL 0.1
+#define RW_LIN_SPEED 1.
+#define PC_MAX_SPEED 1.
+#define PC_DIST_TOL 0.1
+
+using namespace PlayerCc;
+using namespace std;
+
+std::string	gHostname(PlayerCc::PLAYER_HOSTNAME);
+uint32_t	gPort(6299);
+
+/*----------------------------------------------------------------------------------*/
+class Collision
+{
+    public:
+		Collision(Position2dProxy* pp, RangerProxy* lp); 
+		bool CheckMovement(double speed, double rotation);
+		// Give a direction that has free space to move into
+        double DirectionOfFreeSpace(void); 
+	protected:
+		Position2dProxy* pos_proxy;
+        RangerProxy* ranger;
+    private:
+		Collision(){};
+};
+Collision::Collision(Position2dProxy* pp, RangerProxy* lp){
+	pos_proxy = pp;
+	ranger = lp;
+}
+
+class Sonar:public Collision
+{
+	public:
+		Sonar(Position2dProxy* pp, RangerProxy* lp);
+		bool CheckMovement(double speed, double rotation);
+		double DirectionOfFreeSpace(void); 
+	private:
+		Sonar();
+		bool CurrMovementCheck;
+		bool LastMovementCheck;
+		double LastDirectionOfFreeSpace;
+};
+Sonar::Sonar(Position2dProxy* pp, RangerProxy* lp):Collision(pp, lp){
+	pos_proxy = pp;
+	ranger = lp;
+	CurrMovementCheck = false;
+	LastDirectionOfFreeSpace = 0;
+}
+bool Sonar::CheckMovement(double speed, double rotation){
+	double curr_x = pos_proxy->GetXPos();
+	double curr_y = pos_proxy->GetYPos();
+	double front = ranger->GetRange(0);
+	double right = ranger->GetRange(1);
+	double left = ranger->GetRange(2);
+	bool ans = false;
+	if ((front < S_DIST_TOL)) ans = true;
+	else if ((left < S_DIST_TOL)) ans = true;
+	else if ((right < S_DIST_TOL)) ans = true;
+	else ans = false;
+	LastMovementCheck = CurrMovementCheck;
+	CurrMovementCheck = ans;
+	return ans;
+}
+double Sonar::DirectionOfFreeSpace(void){
+	double front = ranger->GetRange(0);
+	double right = ranger->GetRange(1);
+	double left = ranger->GetRange(2);
+	double rightsenser = front + right; //front right half
+	double leftsenser = front + left; //front left half
+	double direction = 0;
+	int turnmode = 0;
+
+	//special case for corner
+	if (CurrMovementCheck & LastMovementCheck & LastDirectionOfFreeSpace < 0){
+		turnmode = 1; //turning right already
+		direction = -0.3;
+	}else if (CurrMovementCheck & LastMovementCheck & LastDirectionOfFreeSpace > 0){
+		turnmode = 2; //turning left already
+		direction = 0.3;
+	}else{
+		turnmode = 0; //no previous turning
+	}
+
+	//if no obstacles go straight
+	if ((front > 1) & (right > 1) & (left > 1)) direction = 0;
+	else if ((leftsenser <= rightsenser) & (turnmode != 2)) direction = -0.3;
+	else if ((leftsenser > rightsenser) & turnmode != 1) direction = 0.3;
+
+	LastDirectionOfFreeSpace = direction;
+	return direction;
+
+}
+
+/*----------------------------------------------------------------------------------*/
+class Laser:public Collision
+{
+	public:
+		Laser(Position2dProxy* pp, RangerProxy* lp);
+		bool CheckMovement(double speed, double rotation);
+		double DirectionOfFreeSpace(void); 
+	private:
+		Laser();
+		bool CurrMovementCheck;
+		bool LastMovementCheck;
+		double LastDirectionOfFreeSpace;
+};
+Laser::Laser(Position2dProxy* pp, RangerProxy* lp):Collision(pp, lp){
+	pos_proxy = pp;
+	ranger = lp;
+	CurrMovementCheck = false;
+	LastDirectionOfFreeSpace = 0;
+}
+bool Laser::CheckMovement(double speed, double rotation){
+	double curr_x = pos_proxy->GetXPos();
+	double curr_y = pos_proxy->GetYPos();
+	double front = ranger->GetRange((ranger->GetRangeCount())/2.0);
+	double right = ranger->GetRange((int)((ranger->GetRangeCount())/3.0));
+	double left = ranger->GetRange((int)((ranger->GetRangeCount())*2.0/3.0));
+	bool ans = false;
+	
+	if ((front < L_DIST_TOL)) ans = true;
+	else if ((left < L_DIST_TOL)) ans = true;
+	else if ((right < L_DIST_TOL)) ans = true;
+	else ans = false;
+
+	LastMovementCheck = CurrMovementCheck;
+	CurrMovementCheck = ans;
+	return ans;
+}
+double Laser::DirectionOfFreeSpace(void){
+	double front = ranger->GetRange((ranger->GetRangeCount())/2.0);
+	double right = ranger->GetRange((int)((ranger->GetRangeCount())/3.0));
+	double left = ranger->GetRange((int)((ranger->GetRangeCount())*2.0/3.0));
+	double rightsenser = front + right; //front right half
+	double leftsenser = front + left; //front left half
+	double direction = 0;
+	int turnmode = 0;
+
+	//special case for corner
+	if (CurrMovementCheck & LastMovementCheck & LastDirectionOfFreeSpace < 0){
+		turnmode = 1; //turning right already
+		direction = -0.3;
+	}else if (CurrMovementCheck & LastMovementCheck & LastDirectionOfFreeSpace > 0){
+		turnmode = 2; //turning left already
+		direction = 0.3;
+	}else{
+		turnmode = 0; //no previous turning
+	}
+
+	//if no obstacles go straigh
+	if ((front > 1) & (right > 1) & (left > 1)) direction = 0;
+	else if ((leftsenser <= rightsenser) & (turnmode != 2)) direction = -0.3;
+	else if ((leftsenser > rightsenser) & turnmode != 1) direction = 0.3;
+
+	LastDirectionOfFreeSpace = direction;
+	return direction;
+}
+
+/*----------------------------------------------------------------------------------*/
+class Behaviors
+{
+	public:
+    	Behaviors(Position2dProxy* pp); // Constructor (Default constructor is private)
+    	virtual void Init(void){}; // Overwritten by children
+    	virtual bool Tick(void) =0; //  Called every frame, true is Behavior complete
+    	virtual void Resume(void){}; // Resume after other behavior was done
+    	double GetIntendedSpeed(){return(speed);};
+    	double GetIntendedRotation(){return(rotation);};
+     	void DoMove(void); //Perform the intended move (not overwriten by childen !!)
+	protected:
+    	double speed,rotation; // The intended speed in this frame
+    	Position2dProxy* posProxy; // The position proxy to obain information !!
+	private:
+    	Behaviors(){}; // Private !!
+};
+Behaviors::Behaviors(Position2dProxy* pp){
+	posProxy = pp;
+}
+void Behaviors::DoMove(void){
+	Tick();
+}
+
+class MoveStraight:public Behaviors
+{
+	public:
+		MoveStraight(Position2dProxy* pp);
+		void Init(double distance);
+		bool Tick(void);
+	private:
+		MoveStraight();
+		double old_x;
+		double old_y;
+		double dist;	
+};
+MoveStraight::MoveStraight(Position2dProxy* pp):Behaviors(pp){		
+	posProxy = pp;
+}
+void MoveStraight::Init(double distance){
+	old_x = posProxy->GetXPos();
+	old_y = posProxy->GetYPos();
+	dist = distance;
+}
+bool MoveStraight::Tick(void){
+	double curr_dist = sqrt(Square(posProxy->GetXPos()-old_x)+Square(posProxy->GetYPos()-old_y));
+	double new_speed = 0;
+
+	if ((dist - curr_dist) > MS_DIST_TOL){
+		new_speed = limit((dist-curr_dist)*MS_LIN_SPEED, -MS_LIN_SPEED, MS_LIN_SPEED);
+		posProxy->SetSpeed(new_speed, 0);
+		speed = new_speed;
+		rotation = 0;
+		return false;
+	}else{
+		new_speed = 0;
+		posProxy->SetSpeed(new_speed, 0);
+		speed = new_speed;
+		rotation = 0;
+		return true;
+	}
+}
+
+class Turn:public Behaviors
+{
+	public:
+		Turn(Position2dProxy* pp);
+		void Init(double angle);
+		bool Tick(void);
+	private:
+		Turn();
+		double old_yaw;
+		double goal;		
+};
+Turn::Turn(Position2dProxy* pp):Behaviors(pp){
+	posProxy = pp;
+}
+void Turn::Init(double angle){
+	old_yaw = posProxy->GetYaw();
+	goal = angle + posProxy->GetYaw();
+
+	if(goal < -M_PI) goal += 2.0*M_PI;
+        if(goal > M_PI) goal -= 2.0*M_PI;
+}
+bool Turn::Tick(void){
+	double ang_speed = 0;
+	double error = 0;
+	error = goal - posProxy->GetYaw();
+
+	if( error < -M_PI ) {error += 2.0*M_PI;}
+        if( error >  M_PI ) {error -= 2.0*M_PI;}
+	
+	if (fabsf(error) > T_ANG_TOL){
+		ang_speed = error;
+		posProxy->SetSpeed(0,ang_speed);
+		speed = 0;
+		rotation = ang_speed;
+		return false;
+	}else{
+		ang_speed = 0;
+		posProxy->SetSpeed(0,ang_speed);
+		speed = 0;
+		rotation = ang_speed;
+		return true;
+	}
+}
+
+
+class Random:public Behaviors
+{
+	public:
+		Random(Position2dProxy* pp);
+		void Init();
+		bool Tick(void);
+	private:
+		Random();
+};
+Random::Random(Position2dProxy* pp):Behaviors(pp){
+	posProxy = pp;
+}
+void Random::Init(){
+	srand(time(NULL)); //ensure random funcion does not repeat previous runs' values
+}
+bool Random::Tick(void){
+	//get current yaw speed
+	double oldyawspeed = posProxy->GetYawSpeed();
+	//initialize a random constant
+	double xn = (rand() / (RAND_MAX + 1.0)) * 200; //between 0 and 200
+	//calculate new yaw speed - leaky integration
+	double newyawspeed = 0.9*oldyawspeed + 0.007 * (100 - xn);
+	//set speed
+	posProxy->SetSpeed(RW_LIN_SPEED, newyawspeed);
+	speed = RW_LIN_SPEED;
+	rotation = newyawspeed;
+	return false;
+}
+
+class MovePosition:public Behaviors
+{
+	public:
+		MovePosition(Position2dProxy* pp);
+		void Init(double x, double y);
+		bool Tick(void);
+	private:
+		MovePosition();
+		double x_goal;
+		double y_goal;
+};
+MovePosition::MovePosition(Position2dProxy* pp):Behaviors(pp){
+	posProxy = pp;
+}
+void MovePosition::Init(double x, double y){
+	x_goal = x;
+	y_goal = y;
+}
+bool MovePosition::Tick(void){
+	double dist = sqrt(Square(x_goal-posProxy->GetXPos())+Square(y_goal-posProxy->GetYPos()));
+	double angle = atan2(y_goal - posProxy->GetYPos(), x_goal - posProxy->GetXPos());
+	double yaw = posProxy->GetYaw();
+	double ang_error = angle - yaw;
+
+	if(ang_error < -M_PI) ang_error += 2.0*M_PI;
+        if(ang_error >  M_PI) ang_error -= 2.0*M_PI;
+
+	double newspeed = 0.;
+	double newturnrate = 0;
+	
+	if (fabsf(dist) > PC_DIST_TOL) {
+		newspeed = limit(dist * PC_MAX_SPEED, -PC_MAX_SPEED, PC_MAX_SPEED);
+		newturnrate = ang_error;
+		posProxy->SetSpeed(newspeed, newturnrate);
+		speed = newspeed;
+		rotation = newturnrate;
+		return false;
+	}else{
+		posProxy->SetSpeed(0.,0.);
+		speed = 0;
+		rotation = 0;
+		return true;
+	}
+}
+
+class MoveNetwork:public Behaviors
+{
+	public:
+		MoveNetwork(Position2dProxy* pp);		
+		void Init(string file);
+		bool Tick(void);
+	private:
+		MoveNetwork();
+		double x; 
+		double y; 
+		bool new_coord;
+		std::queue <double> coords;
+};
+MoveNetwork::MoveNetwork(Position2dProxy* pp):Behaviors(pp){
+	posProxy = pp;
+}
+void MoveNetwork::Init(string file){//&client
+	new_coord = true;
+	//populate queue
+	double buff;
+	ifstream ifs;
+  	ifs.open(file.c_str()); //convert string into char's for ifs.open parameter
+  	while(ifs >> buff) coords.push( buff );
+  	ifs.close();
+}
+bool MoveNetwork::Tick(void){
+	if (new_coord == true){
+		x = coords.front();
+		coords.pop();
+		y = coords.front();
+		coords.pop();
+		new_coord = false;
+		coords.push(x);
+		coords.push(y);
+	}
+
+	double dist = sqrt(Square(x-posProxy->GetXPos()) + Square(y-posProxy->GetYPos()));
+	double angle = atan2(y - posProxy->GetYPos(), x - posProxy->GetXPos());
+	double yaw = posProxy->GetYaw();
+	double ang_error = angle - yaw;
+	
+	if(ang_error < -M_PI) ang_error += 2.0*M_PI;
+        if(ang_error >  M_PI) ang_error -= 2.0*M_PI;
+
+	double newspeed = 0.;
+	double newturnrate = 0;
+	
+	if (fabsf(dist) > PC_DIST_TOL) {
+		newspeed = limit(dist * PC_MAX_SPEED, -PC_MAX_SPEED, PC_MAX_SPEED);
+		newturnrate = ang_error;
+		posProxy->SetSpeed(newspeed, newturnrate);
+		speed = newspeed;
+		rotation = newturnrate;
+	}else{
+		posProxy->SetSpeed(0.,0.);
+		speed = 0;
+		rotation = 0;
+		new_coord = true;
+	}
+	return false;
+}
+
+class Wait:public Behaviors
+{
+	public:
+		Wait(Position2dProxy* pp);
+		void Init();
+		bool Tick(void);
+	private:
+		Wait();
+};
+Wait::Wait(Position2dProxy* pp):Behaviors(pp){
+	posProxy = pp;
+}
+void Wait::Init(){	
+	posProxy->SetSpeed(0,0);	
+}
+bool Wait::Tick(void){
+	posProxy->SetSpeed(0,0);
+	speed = 0;
+	rotation = 0;
+	return false;
+}
+
+/*----------------------------------------------------------------------------------*/
+class Robot
+{
+	public: 
+		Robot(PlayerClient* client, int index); //open robot with a specific index
+		void Tick(void); //make robot move
+		player_pose2d_t GetPos(void); //return current position of robot
+	protected:
+		PlayerClient* robot_client;
+		Position2dProxy* pos_proxy;
+		RangerProxy* ranger;
+		Behaviors* current_behavior;
+		Behaviors* collision_avoid;
+		int behav_mode;
+	private:
+		Robot();
+
+};
+Robot::Robot(PlayerClient* client, int index){
+	robot_client = client;
+	Position2dProxy pp(client, index);   // Get a motor control device
+	pos_proxy = &pp;
+	RangerProxy lp(client, 0); //0 for sonar, 1 for laser
+	ranger = &lp;
+	pos_proxy->SetMotorEnable (true); // Turn on Motors
+	ranger->RequestGeom();
+	ranger->RequestConfigure();
+	behav_mode = 1;
+}
+void Robot::Tick(void){
+	Collision* col = new Sonar(pos_proxy, ranger);
+	//Collision* col = new Laser(pos_proxy, ranger);
+	collision_avoid = new Turn(pos_proxy); // create new behavior instance
+	((Turn*) collision_avoid)->Init(0); 	// Initialize it
+	if (behav_mode == 1){
+		if(((Sonar*)col)->CheckMovement(current_behavior->GetIntendedSpeed(), current_behavior->GetIntendedRotation())){ // collision detected
+			double new_dir = ((Sonar*)col)->DirectionOfFreeSpace(); //set turning direction
+			collision_avoid = new Turn(pos_proxy); // create new behavior instance
+			((Turn*) collision_avoid)->Init(new_dir); 	// Initialize it
+			behav_mode = 2;
+		}
+//		if(((Laser*)col)->CheckMovement(current_behavior->GetIntendedSpeed(), current_behavior->GetIntendedRotation())) 
+		//collision detected
+//		{
+//			double new_dir = ((Laser*)col)->DirectionOfFreeSpace(); //set direction to turn to
+//
+//			collision_avoid = new Turn(pos_proxy); // create new behavior instance
+//			((Turn*) collision_avoid)->Init(new_dir); 	// Initialize it
+//
+//			behav_mode = 2;
+//			}
+	}
+	
+	if (behav_mode == 1){
+		if(!(current_behavior->Tick())) current_behavior->DoMove();
+	}else if (behav_mode == 2){
+		collision_avoid->DoMove();
+		if (collision_avoid->Tick()) behav_mode = 1;	
+	}
+}
+player_pose2d_t Robot::GetPos(){
+	//pos_proxy->RequestGeom();
+	//return pos_proxy->GetPose();
+	player_pose2d_t pos;
+	pos.px = pos_proxy->GetXPos();
+	pos.py = pos_proxy->GetYPos();
+	return pos;
+}
+
+class Robot_move_straight:public Robot
+{
+	public:
+		Robot_move_straight(PlayerClient* client, int index);
+		void Robot_move_straight_init(double dist);
+	private:
+		Robot_move_straight();
+};
+Robot_move_straight::Robot_move_straight(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new MoveStraight(pos_proxy); // create new behavior instance	
+}
+void Robot_move_straight::Robot_move_straight_init(double dist){
+	((MoveStraight*) current_behavior)->Init(dist); 	// Initialize it
+}
+
+class Robot_turn:public Robot
+{
+	public:
+		Robot_turn(PlayerClient* client, int index);
+		void Robot_turn_init(double angle);
+	private:
+		Robot_turn();
+};
+Robot_turn::Robot_turn(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new Turn(pos_proxy); // create new behavior instance	
+}
+void Robot_turn::Robot_turn_init(double angle){
+	((Turn*) current_behavior)->Init(angle); 	// Initialize it
+}
+
+class Robot_random:public Robot
+{
+	public:
+		Robot_random(PlayerClient* client, int index);
+		void Robot_random_init(void);
+	private:
+		Robot_random();
+};
+Robot_random::Robot_random(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new Random(pos_proxy); // create new behavior instance	
+}
+void Robot_random::Robot_random_init(void){
+	((Random*) current_behavior)->Init(); 	// Initialize it
+}
+
+class Robot_point:public Robot
+{
+	public:
+		Robot_point(PlayerClient* client, int index);
+		void Robot_point_init(double x, double y);
+	private:
+		Robot_point();
+};
+Robot_point::Robot_point(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new MovePosition(pos_proxy); // create new behavior instance	
+}
+void Robot_point::Robot_point_init(double x, double y){
+	((MovePosition*) current_behavior)->Init(x, y); 	// Initialize it
+}
+
+class Robot_path:public Robot
+{
+	public:
+		Robot_path(PlayerClient* client, int index);
+		void Robot_path_init(string file);
+	private:
+		Robot_path();
+};
+Robot_path::Robot_path(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new MoveNetwork(pos_proxy); // create new behavior instance	
+}
+void Robot_path::Robot_path_init(string file){
+	((MoveNetwork*) current_behavior)->Init(file); 	// Initialize it
+}
+
+class Robot_wait:public Robot
+{
+	public:
+		Robot_wait(PlayerClient* client, int index);
+		void Robot_wait_init(void);
+	private:
+		Robot_wait();
+};
+Robot_wait::Robot_wait(PlayerClient* client, int index):Robot(client, index){
+	current_behavior = new Wait(pos_proxy); // create new behavior instance	
+}
+void Robot_wait::Robot_wait_init(void){
+	((Wait*) current_behavior)->Init(); 	// Initialize it
+}
+
+/*----------------------------------------------------------------------------------*/
+int main(int argc, char **argv)
+{
+	PlayerClient client(gHostname, gPort); // Connect to server
+    std::cout << client << std::endl;
+	client.Read(); //read
+	
+	/*Robot_path *my_robot;
+	my_robot = new Robot_path(&client, 0);	
+	((Robot_path*) my_robot)->Robot_path_init("position.txt");*/	
+
+	Robot* my_robot1 = new Robot_point(&client, 0); 
+	client.Read();
+	((Robot_point*) my_robot1)->Robot_point_init(0,1); 	// Initialize it
+	client.Read();
+	Robot* my_robot2 = new Robot_path(&client, 1);
+	client.Read();
+	((Robot_path*) my_robot2)->Robot_path_init("position.txt"); 	// Initialize it
+	
+	for(;;){
+		client.Read();
+		//my_robot->Tick();
+		my_robot1->Tick();
+		my_robot2->Tick();
+		
+	}
+}
